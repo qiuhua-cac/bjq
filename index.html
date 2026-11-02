@@ -12,6 +12,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/htmlmixed/htmlmixed.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prettier/2.8.8/standalone.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prettier/2.8.8/parser-html.min.js"></script>
+<!-- ★ 补充引入 Babel 解析器，用于 HTML 结构错乱时的降级排版 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prettier/2.8.8/parser-babel.min.js"></script>
 <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
     body { background: #f1f5f9; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
@@ -272,7 +274,6 @@
             <!-- 手机端预览 -->
             <div class="preview-frame-wrap mobile" id="previewMobileWrap">
                 <div class="phone-mockup">
-                    <div class="phone-notch"></div>
                     <div class="phone-screen">
                         <iframe id="previewMobileIframe"></iframe>
                     </div>
@@ -1183,11 +1184,12 @@
         if (isReadOnly) return showToast('请先解锁编辑模式', 'error');
         const raw = editor.getValue();
         if (!raw || raw.trim() === '') return showToast('内容为空', 'error');
+        
         let finalCode = raw;
+        
         try {
             if (typeof prettier === 'undefined') throw new Error('Prettier 未加载');
             
-            // ★ 兼容不同版本的 Prettier 插件变量名
             let htmlPlugin = null;
             if (typeof prettierPlugins !== 'undefined' && prettierPlugins.html) {
                 htmlPlugin = prettierPlugins.html;
@@ -1195,16 +1197,34 @@
                 htmlPlugin = window.prettierPlugins.html;
             }
             
-            // ★ 如果没有解析到插件，尝试直接格式化（避免 undefined 传参报错）
-            const options = { parser: 'html', tabWidth: 4, printWidth: 120, htmlWhitespaceSensitivity: 'ignore' };
-            if (htmlPlugin) options.plugins = [htmlPlugin];
-
-            finalCode = await prettier.format(raw, options);
+            try {
+                // 第一重尝试：标准 HTML 格式化
+                const options = { 
+                    parser: 'html', 
+                    tabWidth: 4, 
+                    printWidth: 120, 
+                    htmlWhitespaceSensitivity: 'ignore',
+                    html5: true 
+                };
+                if (htmlPlugin) options.plugins = [htmlPlugin];
+                finalCode = await prettier.format(raw, options);
+            } catch (errHtml) {
+                // 第二重兜底：Babel
+                console.warn('HTML 解析失败，尝试 Babel 兜底:', errHtml);
+                try {
+                    finalCode = await prettier.format(raw, { parser: 'babel', tabWidth: 4 });
+                } catch (errBabel) {
+                    // 第三重终极兜底：自己写一个暴力缩进器
+                    console.warn('Babel 也失败了，使用自研缩进算法:', errBabel);
+                    finalCode = runCustomFormat(raw);
+                }
+            }
+            
             showToast('🪄 排版完成', 'success');
         } catch (e) { 
-            console.error('Prettier 报错详情:', e);
-            showToast('排版失败: ' + (e.message || '代码语法错误'), 'error'); 
-            return; 
+            console.error('彻底失败:', e);
+            // 就算全挂了，也强行用自研算法跑一次
+            finalCode = runCustomFormat(raw);
         }
         
         if (finalCode !== raw) {
@@ -1213,9 +1233,36 @@
             editor.setCursor(cursor);
             const win = windowsData[activeWindowIndex];
             if (win) { win.content = finalCode; currentWindowIsModified = true; }
+            showToast('排版成功 (容错模式)', 'success');
         } else {
             showToast('代码格式已经很规范了', 'info');
         }
+    }
+
+    // ★ 自研极简暴力 HTML 缩进算法，不管闭不闭合都能强行排版
+    function runCustomFormat(code) {
+        let lines = code.replace(/>\s*</g, '>\n<').split('\n');
+        let indent = 0;
+        const tab = '    ';
+        
+        return lines.map(line => {
+            line = line.trim();
+            if (!line) return '';
+            
+            // 如果是闭合标签（且不是自闭合），先减少缩进
+            if (line.match(/^<\/([\w-]+)>/)) {
+                indent = Math.max(0, indent - 1);
+            }
+            
+            let formattedLine = tab.repeat(indent) + line;
+            
+            // 如果是开始标签（且不是自闭合，且不是闭合标签），增加缩进
+            if (line.match(/^<([\w-]+)[^>]*[^\/]>$/) && !line.match(/^<(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)/i)) {
+                indent++;
+            }
+            
+            return formattedLine;
+        }).join('\n');
     }
 
     function toggleSearch() {

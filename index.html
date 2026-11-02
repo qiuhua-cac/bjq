@@ -120,9 +120,7 @@
     /* ★ 手机端预览：模拟真实视口外壳 */
     .preview-frame-wrap.mobile { background: #1e293b; padding: 15px; flex: 1; }
     .phone-mockup { width: 100%; max-width: 375px; height: 100%; max-height: 812px; background: #000; border-radius: 40px; padding: 12px; box-shadow: 0 0 0 4px #333, 0 20px 40px rgba(0,0,0,0.5); display: flex; flex-direction: column; position: relative; }
-    .phone-notch { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); width: 140px; height: 25px; background: #000; border-radius: 0 0 15px 15px; z-index: 10; display: flex; justify-content: center; align-items: center; gap: 10px; }
-    .phone-notch::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background: #111; box-shadow: inset 0 0 3px #555; }
-    .phone-notch::after { content: ''; width: 40px; height: 4px; border-radius: 2px; background: #222; }
+    /* 已移除 .phone-notch 的样式 */
     
     /* 强制手机 iframe 视口 */
     .phone-screen { width: 100%; height: 100%; background: #fff; border-radius: 28px; overflow: hidden; position: relative; display: flex; }
@@ -1188,16 +1186,36 @@
         let finalCode = raw;
         try {
             if (typeof prettier === 'undefined') throw new Error('Prettier 未加载');
-            finalCode = await prettier.format(raw, { parser: 'html', plugins: [prettierPlugins.html], tabWidth: 4, printWidth: 120, htmlWhitespaceSensitivity: 'ignore' });
+            
+            // ★ 兼容不同版本的 Prettier 插件变量名
+            let htmlPlugin = null;
+            if (typeof prettierPlugins !== 'undefined' && prettierPlugins.html) {
+                htmlPlugin = prettierPlugins.html;
+            } else if (window.prettierPlugins && window.prettierPlugins.html) {
+                htmlPlugin = window.prettierPlugins.html;
+            }
+            
+            // ★ 如果没有解析到插件，尝试直接格式化（避免 undefined 传参报错）
+            const options = { parser: 'html', tabWidth: 4, printWidth: 120, htmlWhitespaceSensitivity: 'ignore' };
+            if (htmlPlugin) options.plugins = [htmlPlugin];
+
+            finalCode = await prettier.format(raw, options);
             showToast('🪄 排版完成', 'success');
-        } catch (e) { showToast('排版失败，代码语法可能有问题', 'error'); return; }
+        } catch (e) { 
+            console.error('Prettier 报错详情:', e);
+            showToast('排版失败: ' + (e.message || '代码语法错误'), 'error'); 
+            return; 
+        }
+        
         if (finalCode !== raw) {
             const cursor = editor.getCursor();
             editor.setValue(finalCode);
             editor.setCursor(cursor);
             const win = windowsData[activeWindowIndex];
             if (win) { win.content = finalCode; currentWindowIsModified = true; }
-        } else showToast('代码格式已经很规范了', 'info');
+        } else {
+            showToast('代码格式已经很规范了', 'info');
+        }
     }
 
     function toggleSearch() {

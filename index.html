@@ -1190,6 +1190,7 @@
         try {
             if (typeof prettier === 'undefined') throw new Error('Prettier 未加载');
             
+            // 提取插件
             let htmlPlugin = null;
             if (typeof prettierPlugins !== 'undefined' && prettierPlugins.html) {
                 htmlPlugin = prettierPlugins.html;
@@ -1209,21 +1210,15 @@
                 if (htmlPlugin) options.plugins = [htmlPlugin];
                 finalCode = await prettier.format(raw, options);
             } catch (errHtml) {
-                // 第二重兜底：Babel
-                console.warn('HTML 解析失败，尝试 Babel 兜底:', errHtml);
-                try {
-                    finalCode = await prettier.format(raw, { parser: 'babel', tabWidth: 4 });
-                } catch (errBabel) {
-                    // 第三重终极兜底：自己写一个暴力缩进器
-                    console.warn('Babel 也失败了，使用自研缩进算法:', errBabel);
-                    finalCode = runCustomFormat(raw);
-                }
+                // ★ 第二重兜底：直接调用你自己代码里的暴力排版算法！
+                console.warn('HTML 解析失败，正在使用自研算法强行排版:', errHtml);
+                finalCode = runCustomFormat(raw);
             }
             
             showToast('🪄 排版完成', 'success');
         } catch (e) { 
-            console.error('彻底失败:', e);
-            // 就算全挂了，也强行用自研算法跑一次
+            console.error('Prettier 彻底失败:', e);
+            // 如果真的全崩了，还是用暴力算法救场
             finalCode = runCustomFormat(raw);
         }
         

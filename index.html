@@ -481,7 +481,10 @@
                 e.stopPropagation();
                 const isActive = drop.classList.contains('active');
                 menus.forEach(x => document.getElementById(x.drop).classList.remove('active'));
-                if (!isActive) drop.classList.add('active');
+                if (!isActive) {
+                    drop.style.left = btn.offsetLeft + 'px';
+                    drop.classList.add('active');
+                }
             });
         });
 

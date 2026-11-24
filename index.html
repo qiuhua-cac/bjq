@@ -139,6 +139,11 @@
     .modal-row label { display: block; font-size: 12px; color: #64748b; margin-bottom: 4px; font-weight: 600; }
     .modal-row input { width: 100%; padding: 8px 10px; border: 1.5px solid #cbd5e1; border-radius: 6px; font-size: 13px; outline: none; }
     .modal-row input:focus { border-color: #3b82f6; }
+    .path-input-wrap { position: relative; }
+    .path-input-wrap input { padding-right: 28px; }
+    .path-history-btn { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: #64748b; font-size: 12px; padding: 4px; }
+    .path-history-list { position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 1000; display: none; max-height: 180px; overflow-y: auto; margin-top: 4px; }
+    .path-history-list.active { display: block; }
     .modal-actions { display: flex; gap: 10px; margin-top: 18px; justify-content: flex-end; }
     .modal-actions button { padding: 9px 18px; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; }
     .btn-cancel { background: #e2e8f0; color: #475569; }
@@ -348,7 +353,14 @@
         <h3>⚙️ 配置 Git 仓库</h3>
         <div class="modal-row"><label>用户 / Owner</label><input type="text" id="cfgOwner" placeholder="例如：qiuhua-cac"></div>
         <div class="modal-row"><label>仓库 / Repo</label><input type="text" id="cfgRepo" placeholder="例如：my-repo"></div>
-        <div class="modal-row"><label>文件路径 / Path</label><input type="text" id="cfgPath" placeholder="例如：index.html"></div>
+        <div class="modal-row">
+            <label>文件路径 / Path</label>
+            <div class="path-input-wrap">
+                <input type="text" id="cfgPath" placeholder="例如：index.html">
+                <button type="button" class="path-history-btn" id="pathDropdownBtn">▼</button>
+                <div class="path-history-list" id="pathHistoryList"></div>
+            </div>
+        </div>
         <div class="modal-row"><label>Token</label><input type="password" id="cfgToken" placeholder="访问令牌（AT / Git）"></div>
         <div class="modal-actions">
             <button class="btn-cancel" id="cfgCancelBtn">取消</button>
@@ -499,6 +511,11 @@
         document.getElementById('atRepoDropdownBtn').addEventListener('click', (e) => {
             e.stopPropagation();
             document.getElementById('atRepoHistoryList').classList.toggle('active');
+        });
+        document.getElementById('pathDropdownBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            renderPathHistory();
+            document.getElementById('pathHistoryList').classList.toggle('active');
         });
 
         // 文件菜单
@@ -758,6 +775,48 @@
         renderRepoHistory(which);
     }
 
+    // ================= 文件路径历史（AT / Git 各自独立） =================
+    function pathHistoryKey(which) { return 'path_history_' + (which === 'git' ? 'git' : 'at'); }
+
+    function pushPathHistory(which, pathVal) {
+        which = which === 'git' ? 'git' : 'at';
+        const p = (pathVal || '').trim();
+        if (!p) return;
+        const key = pathHistoryKey(which);
+        let arr = JSON.parse(localStorage.getItem(key) || '[]');
+        arr = arr.filter(x => x !== p); arr.unshift(p);
+        if (arr.length > 20) arr.pop();
+        localStorage.setItem(key, JSON.stringify(arr));
+    }
+
+    function renderPathHistory() {
+        const listEl = document.getElementById('pathHistoryList'); if (!listEl) return;
+        const which = configTarget;
+        let arr = JSON.parse(localStorage.getItem(pathHistoryKey(which)) || '[]');
+        if (!arr.length) { listEl.innerHTML = `<div class="repo-history-item" style="color:#94a3b8;">暂无路径历史</div>`; return; }
+        listEl.innerHTML = arr.map(item => `
+            <div class="repo-history-item" onclick="selectPathHistory('${item}')">
+                <span>${item}</span>
+                <span class="del-history-btn" onclick="deletePathHistory(event,'${item}')" title="删除">✕</span>
+            </div>`).join('');
+    }
+
+    function selectPathHistory(val) {
+        const k = lsKeys(configTarget);
+        localStorage.setItem(k.path, val);
+        document.getElementById('cfgPath').value = val;
+        document.getElementById('pathHistoryList').classList.remove('active');
+    }
+
+    function deletePathHistory(e, val) {
+        e.stopPropagation();
+        const key = pathHistoryKey(configTarget);
+        let arr = JSON.parse(localStorage.getItem(key) || '[]');
+        arr = arr.filter(x => x !== val);
+        localStorage.setItem(key, JSON.stringify(arr));
+        renderPathHistory();
+    }
+
     let configTarget = 'git';
 
     function openRepoConfig(which) {
@@ -768,6 +827,7 @@
         document.getElementById('cfgPath').value = cfg.path;
         document.getElementById('cfgToken').value = cfg.token;
         document.querySelector('#repoConfigModal h3').textContent = configTarget === 'at' ? '⚙️ 配置 AT 仓库' : '⚙️ 配置 Git 仓库';
+        renderPathHistory();
         document.getElementById('repoConfigModal').classList.add('active');
     }
 
@@ -777,8 +837,10 @@
         const k = lsKeys(configTarget);
         localStorage.setItem(k.owner, document.getElementById('cfgOwner').value.trim());
         localStorage.setItem(k.repo,  document.getElementById('cfgRepo').value.trim());
-        localStorage.setItem(k.path, document.getElementById('cfgPath').value.trim());
+        const pathVal = document.getElementById('cfgPath').value.trim();
+        localStorage.setItem(k.path, pathVal);
         localStorage.setItem(k.token, document.getElementById('cfgToken').value.trim());
+        pushPathHistory(configTarget, pathVal);
         updateRepoDropdownUI();
         closeRepoConfig();
         showToast('仓库配置已保存', 'success');
@@ -1466,6 +1528,7 @@
             else { windowsData.push(win); activeWindowIndex = windowsData.length - 1; }
 
             pushRepoHistory(cfg.remote, `${cfg.owner}/${cfg.repo}`);
+            pushPathHistory(cfg.remote, cfg.path);
             switchWindow(activeWindowIndex);
             showToast('✅ 拉取完成', 'success');
         } catch (e) { showToast(e.message, 'error'); }
@@ -1517,6 +1580,7 @@
             showToast('正在推送...', 'info');
             await pushRemoteOnce(which, code);
             pushRepoHistory(which, `${cfg.owner}/${cfg.repo}`);
+            pushPathHistory(which, cfg.path);
             showToast('覆盖成功！', 'success');
             currentWindowIsModified = false;
             // AT 主存成功后，后台静默兜底同步 Git，最多尝试 3 次
@@ -1549,6 +1613,8 @@
     window.toggleLockCloudBackup = toggleLockCloudBackup;
     window.selectRepoHistory = selectRepoHistory;
     window.deleteRepoHistory = deleteRepoHistory;
+    window.selectPathHistory = selectPathHistory;
+    window.deletePathHistory = deletePathHistory;
 </script>
 </body>
 </html>
